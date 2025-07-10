@@ -28,6 +28,8 @@ export class StatisticsTableCard extends LitElement {
 
   private _interval?: number;
 
+  private _statisticsReady = false;
+
   public connectedCallback(): void {
     super.connectedCallback();
     if (this._config) {
@@ -99,6 +101,7 @@ export class StatisticsTableCard extends LitElement {
     const startDate = this._startDate || new Date();
     const endDate = this._endDate || new Date();
     try {
+      this._statisticsReady = false;
       const statistics = await fetchStatistics(
         this.hass!,
         startDate,
@@ -108,11 +111,24 @@ export class StatisticsTableCard extends LitElement {
         undefined,
         this._statTypes
       )
+      this._statisticsReady = true;
       this._statistics = statistics;
-      console.log("got");
     } catch (error) {
+      this._statisticsReady = true;
       this._statistics = undefined;
     }
+  }
+
+  private _getDateFormater(): Intl.DateTimeFormat {
+    const options: Intl.DateTimeFormatOptions = {
+      year: this._startDate?.getFullYear() === this._endDate?.getFullYear() ? undefined : "numeric",
+      month: this._config?.period === "month" ? "long" : "short",
+      day: this._config?.period === "month" ? undefined : "numeric",
+      hour: this._config?.period === "5minute" || this._config?.period === "hour" ? "2-digit" : undefined,
+      minute: this._config?.period === "5minute" || this._config?.period === "hour" ? "2-digit" : undefined,
+    };
+
+    return new Intl.DateTimeFormat(this.hass!.language, options);
   }
 
   protected render(): TemplateResult {
@@ -120,9 +136,7 @@ export class StatisticsTableCard extends LitElement {
       return html``;
     }
 
-    // console.log(this._statistics)
-
-    const formatter = new Intl.DateTimeFormat(this.hass.language, { month: 'long' });
+    const formatter = this._getDateFormater();
 
     return html`
       <ha-card>
@@ -133,41 +147,43 @@ export class StatisticsTableCard extends LitElement {
         </h1>`
         : ""}
         <div class="card-content">
-          ${this._statistics
+          ${this._statisticsReady ? html`
+          ${this._statistics && Object.keys(this._statistics).length > 0
             ? html`
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Month</th>
-                      ${this._statTypes!.map(
-                        (type) => html`<th>${type}</th>`
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${Object.entries(this._statistics).map(
-                      ([_, values]) => html`
-                        ${values.map((value) => html`
-                          <tr>
+            <table>
+              <thead>
+                <tr class="statistics-table-header">
+                  <th>${this._config.period}</th>
+                  ${this._statTypes!.map(
+                    (type) => html`<th>${type}</th>`
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                ${Object.entries(this._statistics).map(
+                  ([_, values]) => html`
+                    ${values.map((value) => html`
+                      <tr>
+                        <td class="statistics-date">
+                          ${formatter.format(value.start)}${this._config?.period === "week" ? ` - ${formatter.format(value.end)}` : ""}
+                        </td>
+                        ${this._statTypes!.map((type) => {
+                          const statValue = value[type] || 0;
+                          return html`
                             <td>
-                              ${formatter.format(value.start)}
+                              ${statValue.toFixed(1)} ${this._config!.unit || ""}
                             </td>
-                            ${this._statTypes!.map((type) => {
-                              const statValue = value[type] || 0;
-                              return html`
-                                <td>
-                                  ${statValue.toFixed(1)} ${this._config!.unit || ""}
-                                </td>
-                              `;
-                            })}
-                          </tr>
-                        `)}
-                      `
-                    )}
-                  </tbody>
-                </table>
-              `
-            : html`<p>No statistics available.</p>`}
+                          `;
+                        })}
+                      </tr>
+                    `)}
+                  `
+                )}
+              </tbody>
+            </table>
+            `
+          : html`<p>No statistics available.</p>`}
+          ` : html`<p>Loading statistics...</p>`}
         </div>
       </ha-card>
       `;
@@ -210,6 +226,10 @@ export class StatisticsTableCard extends LitElement {
         padding: 6px 16px;
         box-sizing: border-box;
         border-bottom: 1px solid var(--divider-color);
+      }
+
+      .statistics-table-header, .statistics-date {
+        text-transform: capitalize;
       }
     `;
   }
